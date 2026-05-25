@@ -9,7 +9,8 @@ router = APIRouter()
 
 
 # STEP 1: generate shareable link
-@router.get("/watch/{youtube_id}")
+# renamed from /watch/{youtube_id} to /token/{youtube_id} — fixes duplicate route conflict
+@router.get("/token/{youtube_id}")
 def create_watch_link(youtube_id: str):
 
     token = sign(youtube_id)
@@ -21,7 +22,7 @@ def create_watch_link(youtube_id: str):
 
 # STEP 2: real streaming endpoint
 @router.get("/watch/{youtube_id}")
-async def watch(youtube_id: str, token: str):
+async def watch(youtube_id: str, token: str, request: Request):
 
     valid_id = verify(token)
 
@@ -31,17 +32,23 @@ async def watch(youtube_id: str, token: str):
     data = get_stream_url(youtube_id)
 
     stream_url = data["url"]
+    mime_type  = data.get("mime", "video/mp4")
+
+    # forward Range header so browsers can seek and buffer correctly
+    upstream_headers = {}
+    if "range" in request.headers:
+        upstream_headers["Range"] = request.headers["range"]
 
     async def proxy():
         async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("GET", stream_url) as r:
+            async with client.stream("GET", stream_url, headers=upstream_headers) as r:
                 async for chunk in r.aiter_bytes(1024 * 512):
                     yield chunk
 
     return StreamingResponse(
         proxy(),
-        media_type="video/mp4",
+        media_type=mime_type,
         headers={
-            "Accept-Ranges": "bytes"
+            "Accept-Ranges": "bytes",
         }
     )
