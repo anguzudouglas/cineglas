@@ -22,8 +22,8 @@ app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
-    allow_credentials=True,
+    allow_origins=["*"],        # allows <video> tags from any origin
+    allow_credentials=False,    # must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
