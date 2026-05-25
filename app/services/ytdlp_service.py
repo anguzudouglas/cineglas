@@ -17,10 +17,15 @@ def get_stream_url(video_id: str):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
+    # derive the correct mime type from what yt-dlp actually resolved
+    ext = info.get("ext", "mp4")
+    mime = f"video/{ext}" if ext in ("mp4", "webm") else "video/mp4"
+
     stream = {
-        "url": info["url"],
-        "title": info.get("title"),
-        "thumbnail": info.get("thumbnail")
+        "url":       info["url"],
+        "title":     info.get("title"),
+        "thumbnail": info.get("thumbnail"),
+        "mime":      mime,
     }
 
     stream_cache[video_id] = stream
