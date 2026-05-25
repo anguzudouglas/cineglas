@@ -2,3 +2,5 @@ fastapi
 uvicorn[standard]
 yt-dlp
 python-dotenv
+slowapi
+cachetools
