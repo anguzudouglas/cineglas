@@ -1,42 +1,45 @@
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
-
 import httpx
 
-from app.core.limiter import limiter
-from app.middleware.auth import verify_api_key
-from app.services.ytdlp_service import extract_stream
+from app.core.signer import verify, sign
+from app.services.ytdlp_service import get_stream_url
 
 router = APIRouter()
 
 
-@router.get("/stream/{youtube_id}")
-@limiter.limit("20/minute")
-async def get_stream(
-    request: Request,
-    youtube_id: str,
-    _: bool = Depends(verify_api_key)
-):
+# STEP 1: generate shareable link
+@router.get("/watch/{youtube_id}")
+def create_watch_link(youtube_id: str):
 
-    data = extract_stream(youtube_id)
-    stream_url = data.get("stream_url")
+    token = sign(youtube_id)
 
-    if not stream_url:
-        raise HTTPException(status_code=404, detail="Stream not found")
+    return {
+        "url": f"/api/watch/{youtube_id}?token={token}"
+    }
 
-    async def proxy_stream():
-        headers = {}
 
-        if "range" in request.headers:
-            headers["Range"] = request.headers["range"]
+# STEP 2: real streaming endpoint
+@router.get("/watch/{youtube_id}")
+async def watch(youtube_id: str, token: str):
 
+    valid_id = verify(token)
+
+    if valid_id != youtube_id:
+        raise HTTPException(status_code=403, detail="Invalid or expired token")
+
+    data = get_stream_url(youtube_id)
+
+    stream_url = data["url"]
+
+    async def proxy():
         async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("GET", stream_url, headers=headers) as r:
+            async with client.stream("GET", stream_url) as r:
                 async for chunk in r.aiter_bytes(1024 * 512):
                     yield chunk
 
     return StreamingResponse(
-        proxy_stream(),
+        proxy(),
         media_type="video/mp4",
         headers={
             "Accept-Ranges": "bytes"
