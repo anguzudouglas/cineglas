@@ -3,9 +3,9 @@ from fastapi.responses import StreamingResponse
 
 import httpx
 
+from app.core.limiter import limiter
 from app.middleware.auth import verify_api_key
 from app.services.ytdlp_service import extract_stream
-from app.main import limiter
 
 router = APIRouter()
 
@@ -27,28 +27,18 @@ async def get_stream(
     async def proxy_stream():
         headers = {}
 
-        # IMPORTANT: enables seeking / scrubbing
         if "range" in request.headers:
             headers["Range"] = request.headers["range"]
 
         async with httpx.AsyncClient(timeout=None) as client:
             async with client.stream("GET", stream_url, headers=headers) as r:
+                async for chunk in r.aiter_bytes(1024 * 512):
+                    yield chunk
 
-                # pass through correct status (200 or 206 for partial content)
-                status_code = r.status_code
-
-                async def generate():
-                    async for chunk in r.aiter_bytes(1024 * 512):
-                        yield chunk
-
-                return StreamingResponse(
-                    generate(),
-                    status_code=status_code,
-                    headers={
-                        "Content-Type": r.headers.get("content-type", "video/mp4"),
-                        "Accept-Ranges": "bytes",
-                        "Content-Disposition": f'inline; filename="{data.get("title","video")}.mp4"'
-                    }
-                )
-
-    return await proxy_stream()
+    return StreamingResponse(
+        proxy_stream(),
+        media_type="video/mp4",
+        headers={
+            "Accept-Ranges": "bytes"
+        }
+    )
