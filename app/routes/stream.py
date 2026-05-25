@@ -1,28 +1,34 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import StreamingResponse
 import httpx
 
 from app.core.signer import verify, sign
 from app.services.ytdlp_service import get_stream_url
+from app.middleware.auth import verify_api_key
 
 router = APIRouter()
 
 
-# STEP 1: generate shareable link
-# renamed from /watch/{youtube_id} to /token/{youtube_id} — fixes duplicate route conflict
-@router.get("/token/{youtube_id}")
-def create_watch_link(youtube_id: str):
-
+# STEP 1: client hits this with x-api-key header
+# returns a fully signed, ready-to-use stream_url — drop it straight into <video src>
+@router.get("/watch/{youtube_id}")
+def create_watch_link(
+    youtube_id: str,
+    request: Request,
+    _=Depends(verify_api_key)
+):
     token = sign(youtube_id)
+    base = str(request.base_url).rstrip("/")
 
     return {
-        "url": f"/api/watch/{youtube_id}?token={token}"
+        "stream_url": f"{base}/api/stream/{youtube_id}?token={token}"
     }
 
 
-# STEP 2: real streaming endpoint
-@router.get("/watch/{youtube_id}")
-async def watch(youtube_id: str, token: str, request: Request):
+# STEP 2: browser hits this directly via <video src="...">
+# no API key needed — the signed token is the auth
+@router.get("/stream/{youtube_id}")
+async def stream(youtube_id: str, token: str, request: Request):
 
     valid_id = verify(token)
 
@@ -30,11 +36,9 @@ async def watch(youtube_id: str, token: str, request: Request):
         raise HTTPException(status_code=403, detail="Invalid or expired token")
 
     data = get_stream_url(youtube_id)
-
     stream_url = data["url"]
     mime_type  = data.get("mime", "video/mp4")
 
-    # forward Range header so browsers can seek and buffer correctly
     upstream_headers = {}
     if "range" in request.headers:
         upstream_headers["Range"] = request.headers["range"]
@@ -48,7 +52,5 @@ async def watch(youtube_id: str, token: str, request: Request):
     return StreamingResponse(
         proxy(),
         media_type=mime_type,
-        headers={
-            "Accept-Ranges": "bytes",
-        }
+        headers={"Accept-Ranges": "bytes"}
     )
