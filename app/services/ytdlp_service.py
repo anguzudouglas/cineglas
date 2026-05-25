@@ -1,29 +1,27 @@
 import yt_dlp
 from app.services.cache import stream_cache
 
-def extract_stream(youtube_id: str):
+def get_stream_url(video_id: str):
 
-    # return cached result if available
-    if youtube_id in stream_cache:
-        return stream_cache[youtube_id]
+    if video_id in stream_cache:
+        return stream_cache[video_id]
 
-    url = f"https://www.youtube.com/watch?v={youtube_id}"
+    url = f"https://www.youtube.com/watch?v={video_id}"
 
-    options = {
+    ydl_opts = {
         "quiet": True,
-        "noplaylist": True,
-        "format": "best[height<=1080]"
+        "format": "best[height<=1080]",
+        "noplaylist": True
     }
 
-    with yt_dlp.YoutubeDL(options) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
-    result = {
+    stream = {
+        "url": info["url"],
         "title": info.get("title"),
-        "thumbnail": info.get("thumbnail"),
-        "stream_url": info.get("url")
+        "thumbnail": info.get("thumbnail")
     }
 
-    stream_cache[youtube_id] = result
-
-    return result
+    stream_cache[video_id] = stream
+    return stream
